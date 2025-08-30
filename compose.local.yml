@@ -1,0 +1,108 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: ivis-postgres
+    environment:
+      POSTGRES_USER: mlflow
+      POSTGRES_PASSWORD: mlflow
+      POSTGRES_DB: mlflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mlflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  localstack:
+    image: localstack/localstack:3
+    container_name: ivis-localstack
+    environment:
+      - SERVICES=s3
+      - EDGE_PORT=4566
+      - AWS_DEFAULT_REGION=us-east-1
+      - DATA_DIR=/tmp/localstack/data
+    ports:
+      - "4566:4566"
+    volumes:
+      - localstack_data:/tmp/localstack
+    healthcheck:
+      test: ["CMD", "awslocal", "s3", "ls"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: docker/mlflow/Dockerfile
+    container_name: ivis-mlflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    environment:
+      MLFLOW_BACKEND_STORE_URI: postgresql://mlflow:mlflow@postgres:5432/mlflow
+      MLFLOW_DEFAULT_ARTIFACT_ROOT: s3://ivis-mlflow/
+      MLFLOW_S3_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    ports:
+      - "5000:5000"
+    command: >
+      bash -c "
+        until awslocal --endpoint-url=http://localstack:4566 s3 mb s3://ivis-mlflow 2>/dev/null || awslocal --endpoint-url=http://localstack:4566 s3 ls s3://ivis-mlflow; do
+          echo 'Waiting for LocalStack S3...';
+          sleep 2;
+        done;
+        mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri $$MLFLOW_BACKEND_STORE_URI --default-artifact-root $$MLFLOW_DEFAULT_ARTIFACT_ROOT
+      "
+
+  trainer:
+    build:
+      context: .
+      dockerfile: docker/trainer/Dockerfile
+    container_name: ivis-trainer
+    depends_on:
+      - mlflow
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_S3_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      DATA_ROOT: /data
+      EXPERIMENT: ivis-resnet
+      MODEL_NAME: ivis_resnet
+      EPOCHS: 3
+      BATCH: 32
+      IMG: 224
+    volumes:
+      - ./data:/data
+    command: python /app/train.py
+
+  inference:
+    build:
+      context: .
+      dockerfile: docker/inference/Dockerfile
+    container_name: ivis-inference
+    depends_on:
+      - mlflow
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_S3_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      MODEL_NAME: ivis_resnet
+    ports:
+      - "8080:8080"
+    command: uvicorn server:app --host 0.0.0.0 --port 8080
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  localstack_data:
