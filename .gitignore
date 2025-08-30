@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# Data & artifacts
+data/*
+!data/.gitkeep   # keep folder structure, not the files
+
+# MLflow runs
+mlruns/
+
+# Docker
+*.log
+
+# System files
+.DS_Store
+Thumbs.db
