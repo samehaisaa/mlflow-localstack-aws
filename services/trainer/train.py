@@ -9,6 +9,8 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import datasets, models, transforms
 from tqdm import tqdm
+import json
+import tempfile
 
 # Environment variables
 DATA_ROOT = os.getenv("DATA_ROOT", "/data")
@@ -176,6 +178,11 @@ def main():
         mlflow.log_param("image_size", IMG_SIZE)
         mlflow.log_param("num_classes", len(class_names))
         mlflow.log_param("device", str(DEVICE))
+	#log class names as artifacts
+	with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump({"classes": class_names}, f, ensure_ascii=False, indent=2)
+            tmp_path = f.name
+        mlflow.log_artifact(tmp_path, artifact_path="metadata")
         
         # Initialize model
         print("Initializing model...")
