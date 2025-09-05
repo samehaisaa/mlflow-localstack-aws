@@ -9,6 +9,10 @@ from fastapi.responses import JSONResponse
 import mlflow
 import mlflow.pyfunc
 from torchvision import transforms
+import json
+import tempfile
+from mlflow.tracking import MlflowClient
+from mlflow.artifacts import download_artifacts
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -38,7 +42,7 @@ def load_model():
         logger.info(f"Loading model from {model_uri}")
         
         model = mlflow.pyfunc.load_model(model_uri)
-        
+	load_class_names()        
         # Setup transform
         transform = transforms.Compose([
             transforms.Resize(256),
@@ -107,6 +111,10 @@ async def predict(file: UploadFile = File(...)):
                     predicted_idx = predictions.argmax()
             else:
                 predicted_idx = predictions
+            predicted_label = (
+            class_names[predicted_idx] if class_names and 0 <= predicted_idx < len(class_names)
+            else str(predicted_idx)
+            )
         
         # Get confidence scores if available
         if isinstance(predictions, np.ndarray) and predictions.ndim > 1:
@@ -117,6 +125,7 @@ async def predict(file: UploadFile = File(...)):
         
         return JSONResponse(content={
             "prediction": int(predicted_idx),
+	    "prediction_label": predicted_label,
             "confidence": confidence,
             "filename": file.filename
         })
